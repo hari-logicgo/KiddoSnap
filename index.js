@@ -5,20 +5,37 @@ dotenv.config();
 
 const app = express();
 
+// AUTH MIDDLEWARE
+function authMiddleware(req, res, next) {
+    const clientKey = req.headers["authorization"]; // expecting: Bearer <key>
+
+    if (!clientKey) {
+        return res.status(401).json({ error: "Missing authorization header" });
+    }
+
+    const token = clientKey.replace("Bearer ", "").trim();
+
+    if (token !== process.env.API_SECRET_KEY) {
+        return res.status(403).json({ error: "Invalid authorization token" });
+    }
+
+    next();
+}
+
 // DigitalOcean Spaces config
-const spacesEndpoint = new AWS.Endpoint("blr1.digitaloceanspaces.com"); // change region if needed
+const spacesEndpoint = new AWS.Endpoint("blr1.digitaloceanspaces.com");
 const s3 = new AWS.S3({
     endpoint: spacesEndpoint,
     accessKeyId: process.env.DO_SPACES_KEY,
     secretAccessKey: process.env.DO_SPACES_SECRET
 });
 
-const BUCKET = "milestone";  // your bucket name
-const BASE_URL = "https://milestone.blr1.digitaloceanspaces.com"; // adjust region if needed
+const BUCKET = "milestone";
+const BASE_URL = "https://milestone.blr1.digitaloceanspaces.com";
 
-app.get("/images", async (req, res) => {
+// PROTECTED ENDPOINT
+app.get("/images", authMiddleware, async (req, res) => {
     try {
-        // 1. Fetch list of prompt files
         const promptList = await s3
             .listObjectsV2({
                 Bucket: BUCKET,
@@ -27,15 +44,12 @@ app.get("/images", async (req, res) => {
             .promise();
 
         const prompts = promptList.Contents.filter(f => f.Key.endsWith(".txt"));
-
         const results = [];
 
-        // 2. Loop through each prompt like image-1.txt
         for (const promptFile of prompts) {
-            const fileName = promptFile.Key.split("/").pop(); // image-1.txt
-            const fileNumber = fileName.replace(".txt", "").split("-")[1]; // 1
+            const fileName = promptFile.Key.split("/").pop();
+            const fileNumber = fileName.replace(".txt", "").split("-")[1];
 
-            // 3. Get prompt text
             const promptData = await s3
                 .getObject({
                     Bucket: BUCKET,
@@ -44,8 +58,6 @@ app.get("/images", async (req, res) => {
                 .promise();
 
             const promptText = promptData.Body.toString("utf8");
-
-            // 4. Build thumbnail URL
             const thumbUrl = `${BASE_URL}/KiddoSnap/thumbnails/thumb-image-${fileNumber}.png`;
 
             results.push({
@@ -63,4 +75,3 @@ app.get("/images", async (req, res) => {
 });
 
 app.listen(3000, () => console.log("API running on port 3000"));
-
